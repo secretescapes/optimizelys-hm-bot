@@ -1,0 +1,16 @@
+{
+  "private": true,
+  "name": "optimizelys-harsh-mistress",
+  "version": "0.0.1",
+  "files": [
+    "output",
+    "index.js"
+  ],
+  "scripts": {},
+  "dependencies": {
+    "xhr2": "^0.1.4"
+  },
+  "devDependencies": {
+    "aws-sdk": "^2.49.0"
+  }
+}

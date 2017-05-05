@@ -1,0 +1,18 @@
+{
+  "name": "optimizelys-harsh-mistress",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "output"
+  ],
+  "dependencies": {
+    "purescript-prelude": "^2.0.0",
+    "purescript-console": "^2.0.0",
+    "purescript-optimizely-api": "^0.3.0",
+    "purescript-affjax": "^3.0.2"
+  },
+  "devDependencies": {
+    "purescript-psci-support": "^2.0.0"
+  }
+}
