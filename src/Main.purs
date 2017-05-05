@@ -2,7 +2,7 @@ module Main where
 
 import Prelude
 import Optimizely
-import AWS.Dynamo (put)
+import AWS.Dynamo (put, Tablename(..))
 import AWS.Lambda (LAMBDA, Context, succeed, fail)
 import Control.Monad.Aff (Aff, Canceler(..), launchAff)
 import Control.Monad.Aff.Console (CONSOLE, log, logShow)
@@ -68,7 +68,7 @@ newtype A = A
 instance aAsForeign :: AsForeign A where
     write (A {id, timestamp}) = writeObject [writeProp "id" id, writeProp "timestamp" timestamp]
 
-main = void $ launchAff $ put {tablename: "Test2", item: A {id: "foo3", timestamp: 1}}
+main = void $ launchAff $ put {tablename: (Tablename "Test2"), item: A {id: "foo3", timestamp: 1}}
 
 -- main :: forall eff. Eff ( "err" :: EXCEPTION, "ajax" :: AJAX, "console" :: CONSOLE | eff) Unit
 -- main = void $ launchAff $ do
