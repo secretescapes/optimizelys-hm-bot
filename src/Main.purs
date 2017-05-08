@@ -2,15 +2,18 @@ module Main where
 
 import Prelude
 import Optimizely
-import AWS.Dynamo (put, Tablename(..))
+import AWS.Dynamo (put, Table, tableSpec, query, defaultQuery)
 import AWS.Lambda (LAMBDA, Context, succeed, fail)
 import Control.Monad.Aff (Aff, Canceler(..), launchAff)
+import Control.Monad.Aff.Class (liftAff)
 import Control.Monad.Aff.Console (CONSOLE, log, logShow)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Exception (EXCEPTION)
 import Control.Monad.Except (runExcept, withExcept)
 import Data.Foreign (F, Foreign, MultipleErrors, renderForeignError, writeObject)
-import Data.Foreign.Class (class AsForeign, read, write, writeProp)
+import Data.Foreign.Class (class AsForeign, class IsForeign, read, write, writeProp)
+import Data.Generic.Rep (class Generic)
+import Data.Foreign.Generic (defaultOptions, readGeneric, toForeignGeneric)
 import Data.List.NonEmpty (toUnfoldable)
 import Data.Maybe (Maybe(..))
 import Data.MediaType (MediaType(..))
@@ -62,13 +65,33 @@ notify msg = post webhook (SlackMsg msg)
 
 newtype A = A
    { id :: String
-   , timestamp :: Int
+   , retrievetime :: Int
    }
+derive instance aGeneric :: Generic A _
+
+aSchema :: Table A String Int
+aSchema = tableSpec
+    { name: "Test"
+    , hashkey: "id"
+    , sortkey: "retrievetime"
+    }
+
+opts = defaultOptions{unwrapSingleConstructors=true}
+
+instance aIsForeign :: IsForeign A where
+    read = readGeneric opts
 
 instance aAsForeign :: AsForeign A where
-    write (A {id, timestamp}) = writeObject [writeProp "id" id, writeProp "timestamp" timestamp]
+    write = toForeignGeneric opts
 
-main = void $ launchAff $ put {tablename: (Tablename "Test2"), item: A {id: "foo3", timestamp: 1}}
+main = launchAff $ do
+    liftAff $ log "and now?"
+    put {tablename: aSchema.name, item: A {id: "foo", retrievetime: 5}}
+    liftAff $ log "everything fine"
+    rez <- query (defaultQuery aSchema "foo")
+    rez2 <- query (defaultQuery aSchema "foo")
+    liftAff $ log $ unsafeStringify rez
+
 
 -- main :: forall eff. Eff ( "err" :: EXCEPTION, "ajax" :: AJAX, "console" :: CONSOLE | eff) Unit
 -- main = void $ launchAff $ do

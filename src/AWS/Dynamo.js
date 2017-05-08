@@ -3,13 +3,13 @@
 var AWS = require('aws-sdk')
 var documentClient = new AWS.DynamoDB.DocumentClient();
 
-exports.invokeForeign = function(name, params, cb, errcb){
+exports.invokeForeign = function(name, params, errcb, cb){
     return function(){
         documentClient[name](params, function(err, data){
             if (err){
-                errcb(new Error(err + err.stack))
+                errcb(new Error(err + err.stack))()
             } else {
-                cb(data)
+                cb(data)()
             }
         })
     }
