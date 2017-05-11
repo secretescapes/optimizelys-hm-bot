@@ -2,7 +2,7 @@ module Main where
 
 import Prelude
 import Optimizely
-import AWS.Dynamo (put, Table, tableSpec, query, defaultQuery)
+import AWS.Dynamo (put, Table, tableSpec, query, defaultQuery, Order(..), QueryResult(..))
 import AWS.Lambda (LAMBDA, Context, succeed, fail)
 import Control.Monad.Aff (Aff, Canceler(..), launchAff)
 import Control.Monad.Aff.Class (liftAff)
@@ -12,8 +12,9 @@ import Control.Monad.Eff.Exception (EXCEPTION)
 import Control.Monad.Except (runExcept, withExcept)
 import Data.Foreign (F, Foreign, MultipleErrors, renderForeignError, writeObject)
 import Data.Foreign.Class (class AsForeign, class IsForeign, read, write, writeProp)
-import Data.Generic.Rep (class Generic)
 import Data.Foreign.Generic (defaultOptions, readGeneric, toForeignGeneric)
+import Data.Generic.Rep (class Generic)
+import Data.Generic.Rep.Show (genericShow)
 import Data.List.NonEmpty (toUnfoldable)
 import Data.Maybe (Maybe(..))
 import Data.MediaType (MediaType(..))
@@ -68,6 +69,9 @@ newtype A = A
    , retrievetime :: Int
    }
 derive instance aGeneric :: Generic A _
+instance aShow :: Show A where
+    show a = genericShow a
+
 
 aSchema :: Table A String Int
 aSchema = tableSpec
@@ -85,12 +89,11 @@ instance aAsForeign :: AsForeign A where
     write = toForeignGeneric opts
 
 main = launchAff $ do
-    liftAff $ log "and now?"
     put {tablename: aSchema.name, item: A {id: "foo", retrievetime: 5}}
-    liftAff $ log "everything fine"
-    rez <- query (defaultQuery aSchema "foo")
-    rez2 <- query (defaultQuery aSchema "foo")
-    liftAff $ log $ unsafeStringify rez
+    (QueryResult rez) <- query (defaultQuery aSchema "foo")
+    liftAff $ logShow $ rez.items
+    (QueryResult rez) <- query (defaultQuery aSchema "foo"){limit=Just 1, order=Descending}
+    liftAff $ logShow $ rez.items
 
 
 -- main :: forall eff. Eff ( "err" :: EXCEPTION, "ajax" :: AJAX, "console" :: CONSOLE | eff) Unit

@@ -6,11 +6,16 @@
     "output",
     "index.js"
   ],
-  "scripts": {},
+  "scripts": {
+    "postinstall": "bower install"
+  },
   "dependencies": {
     "xhr2": "^0.1.4"
   },
   "devDependencies": {
+    "bower": "*",
+    "pulp": "^10.0.0",
+    "purescript": "^0.10.5",
     "aws-sdk": "^2.49.0"
   }
 }
