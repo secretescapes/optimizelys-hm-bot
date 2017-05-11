@@ -11,7 +11,9 @@
     "purescript-console": "^2.0.0",
     "purescript-optimizely-api": "^0.3.0",
     "purescript-dynamodb": "^0.1.0",
-    "purescript-affjax": "^3.0.2"
+    "purescript-affjax": "^3.0.2",
+    "purescript-node-process": "^3.0.0",
+    "purescript-now": "^2.0.0"
   },
   "devDependencies": {
     "purescript-psci-support": "^2.0.0"
