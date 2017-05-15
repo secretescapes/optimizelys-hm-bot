@@ -5,7 +5,7 @@ import Optimizely
 import Data.DateTime.Foreign as ForeignDate
 import Data.Map as Map
 import AWS.Dynamo (DYNAMO, Order(..), QueryResult(..), Table, defaultQuery, put, query, tableSpec)
-import AWS.Dynamo.Classes (class DynamoAttribute, dynamoType)
+import AWS.Dynamo.Classes (class DynamoAttribute, class DynamoDecode, class FromDynamo, readDynamoProp, dynamoRead, dynamoReadGeneric, dynamoType)
 import AWS.Lambda (LAMBDA, Context, succeed, fail)
 import Control.Monad.Aff (Aff, Canceler(..), launchAff)
 import Control.Monad.Aff.Class (liftAff)
@@ -27,11 +27,12 @@ import Data.Foreign.Null (Null(..))
 import Data.Generic.Rep (class Generic)
 import Data.Generic.Rep.Show (genericShow)
 import Data.List.NonEmpty (toUnfoldable)
-import Data.Map (Map, fromFoldable, singleton, empty)
+import Data.Map (fromFoldable, singleton, empty)
 import Data.Maybe (Maybe(..))
 import Data.MediaType (MediaType(..))
 import Data.MediaType.Common (applicationJSON)
-import Data.Newtype (class Newtype)
+import Data.Monoid (class Monoid)
+import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.Optimizely (Experiment(..), Project(..), Variation(..))
 import Data.Optimizely.Common (Id(..))
 import Data.Optimizely.Experiment (ExperimentStatus(..))
@@ -114,9 +115,6 @@ derive newtype instance isForeignExperimentId :: IsForeign ExperimentId
 derive newtype instance asForeignExperimentId :: AsForeign ExperimentId
 derive instance newtypeExperimentId :: Newtype ExperimentId _
 
-instance dynamoAttrExperimentId :: DynamoAttribute ExperimentId where
-    dynamoType _ = "N"
-    readAttr = readJSON <=< readString
 
 newtype VariationId = VariationId (Id Variation)
 derive newtype instance ordVariationId :: Ord VariationId
@@ -125,9 +123,6 @@ derive newtype instance isForeignVariationId :: IsForeign VariationId
 derive newtype instance asForeignVariationId :: AsForeign VariationId
 derive instance newtypeVariationId :: Newtype VariationId _
 
-instance dynamoAttrVariationId :: DynamoAttribute VariationId where
-    dynamoType _ = "N"
-    readAttr = readJSON <=< readString
 
 newtype DateTime = DateTime ForeignDate.DateTime
 derive newtype instance showDateTime :: Show DateTime
@@ -135,9 +130,12 @@ derive newtype instance isForeignDateTime :: IsForeign DateTime
 derive newtype instance asForeignDateTime :: AsForeign DateTime
 derive instance newtypeDateTime :: Newtype DateTime _
 
+instance fromDynamoDateTime :: FromDynamo DateTime where
+    dynamoRead = read
+
 instance dynamoAttrDateTime :: DynamoAttribute DateTime where
     dynamoType _ = "S"
-    readAttr = readJSON <=< readString
+
 
 newtype Variations = Variations
     { keyname :: String
@@ -156,40 +154,46 @@ variationsSchema = tableSpec
     , sortkey: "retrievetime"
     }
 
-readMap :: forall k v. (IsForeign k, IsForeign v, Ord k) => Foreign -> F (Map k v)
-readMap obj = do
+instance isForeignVariations :: IsForeign Variations where
+    read = readGeneric opts
+
+instance fromDynamoVariations :: FromDynamo Variations where
+    dynamoRead = dynamoReadGeneric
+
+instance variationsAsForeign :: AsForeign Variations where
+    write = toForeignGeneric opts
+
+newtype Map k v = Map (Map.Map k v)
+derive instance genericMap :: Generic (Map k v) _
+derive instance newtypeMap :: Newtype (Map k v) _
+derive newtype instance showMap :: (Show k, Show v) => Show (Map k v)
+derive newtype instance monoidMap :: Ord k => Monoid (Map k v)
+
+readMap :: forall k v. (Ord k, IsForeign k) => (Foreign -> F v) -> Foreign -> F (Map k v)
+readMap readValue obj = do
     ks <- keys obj
-    map fromFoldable $ traverse readKeyValue ks
+    map (wrap <<< fromFoldable) $ traverse readKeyValue ks
     where
         readKeyValue i  = do
-            value <- readProp i obj
+            value <- readValue =<< readProp i obj
             key <- readJSON i
             pure $ Tuple key value
 
-instance variationsIsForeign :: IsForeign Variations where
-    read value = do
-        key <- readProp "keyname" value
-        retrievetime <- readProp "retrievetime" value
-        rawVariations <- readProp "variationWeights" value
-        variationWeights <- traverse readMap =<< readMap rawVariations
-        pure $ Variations {keyname: key, retrievetime, variationWeights}
+instance isForeignMap :: (IsForeign k, IsForeign v, Ord k) => IsForeign (Map k v) where
+    read = readMap read
+
+instance fromDynamoMap :: (IsForeign k, Ord k, DynamoAttribute v) => FromDynamo (Map k v) where
+    dynamoRead = readMap readDynamoProp
+
+instance asForeignMap :: (AsForeign k, AsForeign v) => AsForeign (Map k v) where
+    write = writeObject <<< map (uncurry writeProp <<< writeKey) <<< Map.toUnfoldable <<< unwrap
+        where
+            writeKey (Tuple k v) = Tuple (unsafeStringify $ write k) v
+
+instance dynamoAttrMap :: (IsForeign k, Ord k, DynamoAttribute v) => DynamoAttribute (Map k v) where
+    dynamoType _ = "M"
 
 
-showKey :: forall k v. (Show k) => Tuple k v -> Tuple String v
-showKey (Tuple k v) = Tuple (show k) v
-
-mapToForeign :: forall k v. (AsForeign v, Show k) => Map k v -> Foreign
-mapToForeign = writeObject <<< map (uncurry writeProp <<< showKey) <<< Map.toUnfoldable
-
-variationsToForeign :: Map ExperimentId (Map VariationId Int) -> Foreign
-variationsToForeign = mapToForeign <<< map mapToForeign
-
-instance variationsAsForeign :: AsForeign Variations where
-    write (Variations {keyname: key, retrievetime, variationWeights})
-        = writeObject [ writeProp "keyname" $ write key
-                      , writeProp "retrievetime" $ write retrievetime
-                      , writeProp "variationWeights" $ variationsToForeign variationWeights
-                      ]
 
 isRunning :: Experiment -> Boolean
 isRunning (Experiment {status: Running}) = true
@@ -201,8 +205,8 @@ currentDateTime = do
   pure $ DateTime $ ForeignDate.DateTime $ current
 
 variationKeyValue :: Variation -> Map VariationId Int
-variationKeyValue (Variation {id, weight: Null (Just w)}) = singleton (VariationId id) w
-variationKeyValue _ = empty
+variationKeyValue (Variation {id, weight: Null (Just w)}) = wrap $ singleton (VariationId id) w
+variationKeyValue _ = wrap empty
 
 experimentKeyValue :: forall eff. Auth -> Experiment -> H eff (Tuple ExperimentId (Map VariationId Int))
 experimentKeyValue tkn (Experiment {id}) = do
@@ -214,7 +218,7 @@ retrieveVariations tkn = do
     projects <- listProjects tkn
     experiments <- map join $ traverse (\(Project {id}) -> listExperiments id tkn) projects
     let activeExperiments = filter isRunning experiments
-    map fromFoldable $ traverse (experimentKeyValue tkn) activeExperiments
+    map (wrap <<< fromFoldable) $ traverse (experimentKeyValue tkn) activeExperiments
 
 
 type Dynaff eff r = Aff (dynamo :: DYNAMO | eff) r
