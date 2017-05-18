@@ -9,12 +9,14 @@ import Control.Monad.Aff.Console (CONSOLE, logShow, log)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Exception (EXCEPTION)
 import Control.Monad.Eff.Now (NOW)
+import Control.Monad.Eff.Unsafe (unsafeCoerceEff, unsafePerformEff)
 import Control.Monad.Except (runExceptT)
 import Data.Either (Either(..))
 import Data.Foldable (maximumBy)
 import Data.Foreign (Foreign)
 import Data.Foreign.Class (class IsForeign, read)
 import Data.Foreign.Undefined (Undefined(..))
+import Data.Function.Uncurried (mkFn2, Fn2)
 import Data.List (List, elemIndex, filter, intercalate, intersect, length, take, concatMap, catMaybes)
 import Data.Map (lookup)
 import Data.Maybe (Maybe(..), maybe)
@@ -32,16 +34,17 @@ import Network.Optimizely.Auth (Auth(..))
 import Node.Process (PROCESS, lookupEnv)
 
 type LambdaEff eff = Eff (lambda :: LAMBDA | eff)
+type Handler = Fn2 Context Foreign Unit
 
 mkHandler :: forall a eff. (IsForeign a) => (a -> LambdaEff eff Unit) -> Context -> Foreign -> LambdaEff eff Unit
 mkHandler fn context event = process $ foreignParseToEither $ read event
     where
         process :: Either String a -> Eff (lambda :: LAMBDA | eff) Unit
-        process (Left err) = fail context err
-        process (Right a)  = do
-            fn a
-            succeed context "OK"
+        process (Left err) = unsafeCoerceEff $ void $ launchAff $ exitWith $ show err -- TODO fail and succeed seem to be deprecated
+        process (Right a)  = fn a
 
+foreignHandler :: forall a eff. (IsForeign a) => (a -> LambdaEff eff Unit) -> Handler
+foreignHandler fn = mkFn2 $ (\context -> unsafePerformEff <<< mkHandler fn context)
 
 storeWeights :: forall eff. (Map ExperimentId (Map VariationId Int)) -> Dynaff (now :: NOW | eff) Unit
 storeWeights variationWeights = do
@@ -83,8 +86,8 @@ retrieveWeights' _ = withOptiKey $ \tkn -> do
                 Left err -> exitShowing err
                 Right weights -> storeWeights weights
 
-retrieveWeights :: forall eff. Context -> Foreign -> LambdaEff (console :: CONSOLE, now :: NOW, dynamo :: DYNAMO, ajax :: AJAX, err :: EXCEPTION, process :: PROCESS | eff) Unit
-retrieveWeights = mkHandler retrieveWeights'
+retrieveWeights :: Handler
+retrieveWeights = foreignHandler retrieveWeights'
 
 withOptiKey :: forall eff. (Auth -> Aff (console :: CONSOLE, process :: PROCESS  | eff) Unit)
                         -> Eff (console :: CONSOLE, err :: EXCEPTION, process :: PROCESS | eff) Unit
@@ -101,8 +104,8 @@ adjustABTests' (StreamPayload events) = withOptiKey \tkn -> void $ for pathologi
         latestImage = map _.newImage $ maximumBy (\{sequenceNumber: n1} {sequenceNumber: n2} -> compare n1 n2) records
         pathologicalVariations = maybe Nothing (\x -> flipMaybe x $ getValid max100s x) latestImage -- if no events, everything is fine, but this shouldn't happen
 
-adjustABTests :: forall eff. Context -> Foreign -> LambdaEff (console :: CONSOLE, now :: NOW, dynamo :: DYNAMO, ajax :: AJAX, err :: EXCEPTION, process :: PROCESS | eff) Unit
-adjustABTests = mkHandler adjustABTests'
+adjustABTests :: Handler
+adjustABTests = foreignHandler adjustABTests'
 
 flipMaybe :: forall a b. a -> Maybe b -> Maybe a
 flipMaybe _ (Just _) = Nothing

@@ -2,6 +2,5 @@
 
 var lambda = require('./output/Main')
 
-exports.handler = function(data, context) {
-  lambda.handler(context)(data)();
-};
+exports.retrieveWeights = lambda.retrieveWeights
+exports.adjustABTests = lambda.adjustABTests

@@ -37,7 +37,7 @@ instance showRecord :: Show Variations where
 
 variationsSchema :: Table Variations String DateTime
 variationsSchema = tableSpec
-    { name: "Variations"
+    { name: "experiments-prod" -- TODO, wire it an env variable
     , hashkey: "keyname"
     , sortkey: "retrievetime"
     }
