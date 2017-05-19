@@ -34,17 +34,17 @@ import Network.Optimizely.Auth (Auth(..))
 import Node.Process (PROCESS, lookupEnv)
 
 type LambdaEff eff = Eff (lambda :: LAMBDA | eff)
-type Handler = Fn2 Context Foreign Unit
+type Handler = Fn2 Foreign Context Unit
 
-mkHandler :: forall a eff. (IsForeign a) => (a -> LambdaEff eff Unit) -> Context -> Foreign -> LambdaEff eff Unit
-mkHandler fn context event = process $ foreignParseToEither $ read event
+mkHandler :: forall a eff. (IsForeign a) => (a -> LambdaEff eff Unit) -> Foreign -> Context -> LambdaEff eff Unit
+mkHandler fn event context = process $ foreignParseToEither $ read event
     where
         process :: Either String a -> Eff (lambda :: LAMBDA | eff) Unit
         process (Left err) = unsafeCoerceEff $ void $ launchAff $ exitWith $ show err -- TODO fail and succeed seem to be deprecated
         process (Right a)  = fn a
 
 foreignHandler :: forall a eff. (IsForeign a) => (a -> LambdaEff eff Unit) -> Handler
-foreignHandler fn = mkFn2 $ (\context -> unsafePerformEff <<< mkHandler fn context)
+foreignHandler fn = mkFn2 $ (\event -> unsafePerformEff <<< mkHandler fn event)
 
 storeWeights :: forall eff. (Map ExperimentId (Map VariationId Int)) -> Dynaff (now :: NOW | eff) Unit
 storeWeights variationWeights = do
